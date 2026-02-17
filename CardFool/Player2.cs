@@ -1,16 +1,29 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 
 namespace CardFool
 {
     public class MPlayer2
     {
-        private int countBittedCards = 0;
-        private string Name = "TestPlayer";
-        private List<SCard> hand = new List<SCard>();
-        private SCard Trump;
+        private enum RoundAttacker { ME, OPPONENT }
 
-        public string GetName() => Name;
+        private List<SCard> hand = new List<SCard>();
+        private Suits trumpSuit;
+        private int countBittedCards = 0;
+
+        private List<int> GetTableRanks(List<SCardPair> table)
+        {
+            List<int> ranks = new List<int>();
+            foreach (var pair in table)
+            {
+                if (!ranks.Contains(pair.Down.Rank)) ranks.Add(pair.Down.Rank);
+                if (pair.Beaten && !ranks.Contains(pair.Up.Rank)) ranks.Add(pair.Up.Rank);
+            }
+            return ranks;
+        }
+
+        public string GetName() => "Bot";
 
         public int GetCount() => hand.Count;
 
@@ -19,153 +32,136 @@ namespace CardFool
             hand.Add(card);
         }
 
-        public void SetTrump(SCard NewTrump)
+        public void SetTrump(SCard newTrump)
         {
-            Trump = NewTrump;
+            trumpSuit = newTrump.Suit;
         }
 
-        // Самая простая и стабильная стратегия:
-        // Минимальная не козырная, если нет — минимальный козырь
+        // самая простая и стабильная стратегия:
+        // минимальная не козырная, если нет - минимальный козырь
         public List<SCard> LayCards()
         {
             if (hand.Count == 0)
                 return new List<SCard>();
 
-            SCard? bestNonTrump = null;
-            SCard bestTrump = hand[0];
+            int notTrumpCardIdx = -1;
+            int trumpCardIdx = -1;
 
-            foreach (var card in hand)
+            for (int i = 0; i < hand.Count; i++)
             {
-                if (card.Suit != Trump.Suit)
+                SCard card = hand[i];
+
+                if (card.Suit != trumpSuit)
                 {
-                    if (bestNonTrump == null || card.Rank < bestNonTrump.Value.Rank)
-                        bestNonTrump = card;
+                    if (notTrumpCardIdx == -1 || card.Rank < hand[notTrumpCardIdx].Rank)
+                        notTrumpCardIdx = i;
                 }
-                else if (card.Rank < bestTrump.Rank)
+                else if (trumpCardIdx == -1 || card.Rank < hand[trumpCardIdx].Rank)
                 {
-                    bestTrump = card;
+                    trumpCardIdx = i;
                 }
             }
 
-            SCard chosen = bestNonTrump ?? bestTrump;
-            hand.Remove(chosen);
-            return new List<SCard> { chosen };
+            int selectedCardIdx = notTrumpCardIdx != -1 ? notTrumpCardIdx : trumpCardIdx;
+            SCard selectedCard = hand[selectedCardIdx];
+            hand.RemoveAt(selectedCardIdx);
+
+            return new List<SCard> { selectedCard };
         }
 
-        // Бьём минимальной возможной картой
+        // бьём минимальной возможной картой
         public bool Defend(List<SCardPair> table)
         {
-            // Сначала ТОЛЬКО ищем карты, не трогая table и hand
-            Dictionary<int, int> chosen = new Dictionary<int, int>();
+            Dictionary<int, int> selected = new Dictionary<int, int>();
 
             for (int i = 0; i < table.Count; i++)
             {
                 if (table[i].Beaten)
                     continue;
 
-                int bestIndex = -1;
-                int bestRank = int.MaxValue;
+                int selectedIndex = -1;
+                int selectedRank = int.MaxValue;
 
                 for (int j = 0; j < hand.Count; j++)
                 {
-                    if (chosen.Values.Contains(j))
+                    if (selected.Values.Contains(j))
                         continue;
 
-                    if (SCard.CanBeat(table[i].Down, hand[j], Trump.Suit))
+                    if (SCard.CanBeat(table[i].Down, hand[j], trumpSuit))
                     {
-                        if (hand[j].Rank < bestRank)
+                        if (hand[j].Rank < selectedRank)
                         {
-                            bestRank = hand[j].Rank;
-                            bestIndex = j;
+                            selectedRank = hand[j].Rank;
+                            selectedIndex = j;
                         }
                     }
                 }
 
-                // Если хотя бы одну карту не можем побить – сразу отмена,
-                // НИЧЕГО не меняя
-                if (bestIndex == -1)
-                    return false;
-
-                chosen[i] = bestIndex;
+                if (selectedIndex == -1) return false;
+                selected[i] = selectedIndex;
             }
 
-            // Только если МЫ УВЕРЕНЫ, что можем отбиться полностью,
-            // начинаем реально изменять состояние
-
-            foreach (var kv in chosen)
+            foreach (var selectedPair in selected)
             {
-                int pairIndex = kv.Key;
-                int handIndex = kv.Value;
+                int pairIndex = selectedPair.Key;
+                int handIndex = selectedPair.Value;
 
                 var pair = table[pairIndex];
-                pair.SetUp(hand[handIndex], Trump.Suit);
+                pair.SetUp(hand[handIndex], trumpSuit);
                 table[pairIndex] = pair;
             }
 
-            // Удаляем использованные карты из руки
-            foreach (int idx in chosen.Values.OrderByDescending(x => x))
+            foreach (int idx in selected.Values.OrderByDescending(x => x))
                 hand.RemoveAt(idx);
 
             return true;
         }
 
-        private int getCountCards(List<SCardPair> table)
+        private int GetCountCards(List<SCardPair> table)
         {
-            int countCards = 0;
+            int count = 0;
             foreach (var pair in table)
             {
-                ++countCards;
-                if (pair.Beaten) ++countCards;
+                count++;
+                if (pair.Beaten) count++;
             }
-
-            return countCards;
+            return count;
         }
 
         public bool AddCards(List<SCardPair> table, bool opponentDefensed)
         {
             if (!opponentDefensed || table.Count >= 6 || hand.Count == 0)
                 return false;
-
-            if ((36 - countBittedCards - hand.Count - getCountCards(table)) <= 0)
+            if ((36 - countBittedCards - hand.Count - GetCountCards(table)) <= 0)
                 return false;
 
-            // Собираем допустимые ранги
-            HashSet<int> ranksOnTable = new HashSet<int>();
-            foreach (var pair in table)
-            {
-                ranksOnTable.Add(pair.Down.Rank);
-                if (pair.Beaten)
-                    ranksOnTable.Add(pair.Up.Rank);
-            }
+            List<int> ranksOnTable = GetTableRanks(table);
 
-            // Ищем минимальную подходящую карту
-            int bestIndex = -1;
-            int bestRank = int.MaxValue;
+            int selectedIndex = -1;
+            int selectedRank = int.MaxValue;
 
             for (int i = 0; i < hand.Count; i++)
             {
                 if (ranksOnTable.Contains(hand[i].Rank))
                 {
-                    if (hand[i].Rank < bestRank)
+                    if (hand[i].Rank < selectedRank)
                     {
-                        bestRank = hand[i].Rank;
-                        bestIndex = i;
+                        selectedRank = hand[i].Rank;
+                        selectedIndex = i;
                     }
                 }
             }
 
-            if (bestIndex == -1)
-                return false;
+            if (selectedIndex == -1) return false;
 
-            table.Add(new SCardPair(hand[bestIndex]));
-            hand.RemoveAt(bestIndex);
+            table.Add(new SCardPair(hand[selectedIndex]));
+            hand.RemoveAt(selectedIndex);
             return true;
         }
 
         public void OnEndRound(List<SCardPair> table, bool isDefenseSuccessful)
         {
-            // Обновляем бито
-            if (isDefenseSuccessful) countBittedCards += getCountCards(table);
+            if (isDefenseSuccessful) countBittedCards += GetCountCards(table);
         }
     }
 }
