@@ -55,7 +55,7 @@ namespace CardFool
         }
 
         // играем стратегию двоек/троек/четверок
-        private new SCard? PlayBatchStrategy(List<SCard>? hand = null)
+        private SCard? PlayBatchStrategy(List<SCard>? hand = null)
         {
             if (hand == null) hand = this.hand;
 
