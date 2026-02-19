@@ -58,6 +58,7 @@ namespace CardFool
         private SCard? PlayBatchStrategy(List<SCard>? hand = null)
         {
             if (hand == null) hand = this.hand;
+            if (hand.Count == 0) return null;
 
             List<SCard> filteredHand = countBittedCards <= 18 ? // в первой половине игры придерживаем козыри
                            hand.Where(card => card.Suit != trumpSuit).ToList() :
@@ -74,7 +75,7 @@ namespace CardFool
                 SCard first = cardPairGroup[0];
 
                 cardPairGroup.RemoveAt(0); // ходим по одной
-                hand.Remove(first);
+                this.hand.Remove(first);
                 batchMemoCards.Clear();
 
                 // запоминаем карты для подкидывания
@@ -107,7 +108,7 @@ namespace CardFool
 
             if (hand.Count == 0) return new List<SCard>();
 
-            int notTrumpCardIdx = -1; // индекс в таблице и сама карта для быстрого удаления
+            int notTrumpCardIdx = -1; // индекс карты в руке быстрого удаления
             int trumpCardIdx = -1;
             int selectedCardIdx = -1; // итоговая карта, которой будем ходить
 
@@ -147,17 +148,15 @@ namespace CardFool
                 }
             }
 
-            // стратегия 2. играем стратегию пар/двоек/троек
+            // стратегия 2. играем стратегию пар/троек/четверок
             SCard? batchFirst = PlayBatchStrategy();
             if (batchFirst.HasValue)
-            {
-                hand.Remove(batchFirst.Value);
                 return new List<SCard> { batchFirst.Value };
-            }
 
             notTrumpCardIdx = -1;
             trumpCardIdx = -1;
 
+            // 3. минимальная карта
             // выбираем минимальную некозырную карту и минимальную козырь для хода
             for (int i = 0; i < hand.Count; i++)
             {
@@ -198,9 +197,6 @@ namespace CardFool
                 // выбираем минимальную карту, чтобы побиться
                 int selectedIdx = -1;
 
-                // ! предположение оказалось провальным
-                // bool selectedCreatesBatch = false;
-
                 for (int j = 0; j < hand.Count; j++)
                 {
                     if (!SCard.CanBeat(table[i].Down, hand[j], trumpSuit)) continue; // если не можем побить
@@ -213,30 +209,18 @@ namespace CardFool
                     // предпочитаем некозырные карты козырям
                     if (
                         selectedIdx == -1 ||
-                        // если карта не козырная, но "лучшая" - козырная
+                        // если карта не козырная, но предпочитаемая - козырная
                         (!currentIsTrump && cardIsTrump) ||
                         // если выбираем среди некозырных, но эта карта ниже рангом
                         (!currentIsTrump && !cardIsTrump && hand[j].Rank < hand[selectedIdx].Rank) ||
                         // если выбираем среди козырных, но эта карта ниже рангом
                         (currentIsTrump && cardIsTrump && hand[j].Rank < hand[selectedIdx].Rank))
                     {
-                        // ! предположение оказалось провальным
-                        // bool cardCreatesBatch = hand.FindAll(card => card.Rank == hand[j].Rank).Count > 1;
-
-                        // if (
-                        //     // если карту еще не выбрали
-                        //     selectedIdx == -1 ||
-                        //     // если эта карта не образует пару/двойку/тройку, а предыдущая уже образует
-                        //     (!cardCreatesBatch && selectedCreatesBatch)
-                        // )
-                        // {
-                        //     selectedIdx = j;
-                        //     selectedCreatesBatch = cardCreatesBatch;
-                        // }
                         selectedIdx = j;
                     }
                 }
 
+                // если хоть одну карту не можем побить, забираем карты соперника
                 if (selectedIdx == -1) return false;
 
                 SCardPair pair = table[i];
@@ -257,7 +241,6 @@ namespace CardFool
             if (table.Count >= Math.Min(opponentCurrentCountCards, 6)) // не можем подкидывать больше, чем есть у оппонента
                 return false;
 
-
             if (batchMemoCards.Count > 0) // если активна стратегия пар/двоек/троек
             {
                 var cardPair = batchMemoCards.Dequeue(); // снова ходим по одной, берем первую карту в очереди
@@ -268,23 +251,22 @@ namespace CardFool
                 return true;
             }
 
-            // // выбираем карты для подкидывания
-            // List<SCard> batchHand = hand.Where(card =>
-            // {
-            //     return table.Any(tableCard =>
-            //     {
-            //         if (tableCard.Beaten)
-            //             return card.Rank == tableCard.Down.Rank || card.Rank == tableCard.Up.Rank;
-            //         return card.Rank == tableCard.Down.Rank;
-            //     });
-            // }).ToList();
-            // SCard? batchFirst = PlayBatchStrategy(batchHand); // пытаемся подкинуть пары/двоики/троики
-            // if (batchFirst.HasValue)
-            // {
-            //     hand.Remove(batchFirst.Value);
-            //     table.Add(new SCardPair(batchFirst.Value));
-            //     return true;
-            // }
+            // формируем новый наборы карт. выбираем карты для подкидывания
+            List<SCard> batchHand = hand.Where(card =>
+            {
+                return table.Any(tableCard =>
+                {
+                    if (tableCard.Beaten)
+                        return card.Rank == tableCard.Down.Rank || card.Rank == tableCard.Up.Rank;
+                    return card.Rank == tableCard.Down.Rank;
+                });
+            }).ToList();
+            SCard? batchFirst = PlayBatchStrategy(batchHand); // пытаемся подкинуть пары/двоики/троики
+            if (batchFirst.HasValue)
+            {
+                table.Add(new SCardPair(batchFirst.Value));
+                return true;
+            }
 
             List<int> ranksOnTable = GetTableRanks(table);
 
@@ -339,8 +321,6 @@ namespace CardFool
             }
             else opponentCurrentCountCards -= attackCards; // если соперник атаковал
 
-            if (opponentCurrentCountCards < 0) opponentCurrentCountCards = 0;
-
             // удаляем карты, которые вышли из игры, из возможной руки соперника
             foreach (var pair in table)
             {
@@ -384,6 +364,7 @@ namespace CardFool
         {
             trumpSuit = newTrump.Suit;
             InitOpponentHand();
+            opponentHand.Remove(newTrump);
         }
     }
 }
