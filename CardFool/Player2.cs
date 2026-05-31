@@ -37,7 +37,7 @@ namespace CardFool
             trumpSuit = newTrump.Suit;
         }
 
-        // самая простая и стабильная стратегия:
+        // самая простая  стратегия:
         // минимальная не козырная, если нет - минимальный козырь
         public List<SCard> LayCards()
         {
